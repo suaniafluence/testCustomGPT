@@ -12,10 +12,25 @@ import pytest
 from pathlib import Path
 from typing import Tuple
 
+# Load .env file if it exists
+def load_env_file():
+    """Load environment variables from .env file in project root"""
+    env_file = Path(__file__).parent.parent / ".env"
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if line and not line.startswith("#"):
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        os.environ[key.strip()] = value.strip()
+
+load_env_file()
+
 # Configuration
-MODEL_ID = os.getenv("OPENAI_MODEL_ID", "g-68fb932716ac8191abf323ea80f99a7a")
 API_KEY = os.getenv("OPENAI_API_KEY")
-API_URL = "https://api.openai.com/v1/chat/completions"
+MODEL_ID = os.getenv("OPENAI_ASSISTANT_ID")  # Assistant ID
 TEST_DIR = Path(__file__).parent
 INPUT_DIR = TEST_DIR / "input"
 EXPECTED_DIR = TEST_DIR / "expected"
@@ -76,30 +91,74 @@ class RTFValidator:
 
 
 class CustomGPTTester:
-    """Handles communication with Custom GPT via OpenAI API"""
+    """Handles communication with OpenAI Assistant"""
 
     @staticmethod
     def call_custom_gpt(prompt: str) -> str:
-        """Send prompt to Custom GPT and return response"""
+        """Send prompt to Assistant and return response"""
         if not API_KEY:
             raise ValueError("OPENAI_API_KEY environment variable not set")
 
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model": MODEL_ID,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7,
-        }
+        if not MODEL_ID:
+            raise ValueError("OPENAI_ASSISTANT_ID environment variable not set")
 
         try:
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-        except requests.exceptions.RequestException as e:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=API_KEY)
+
+            # Create a thread
+            thread = client.beta.threads.create()
+
+            # Add message to thread
+            client.beta.threads.messages.create(
+                thread_id=thread.id, role="user", content=prompt
+            )
+
+            # Run the assistant
+            run = client.beta.threads.runs.create(
+                thread_id=thread.id, assistant_id=MODEL_ID
+            )
+
+            # Wait for completion (with timeout)
+            import time
+
+            timeout = 60
+            start_time = time.time()
+            while run.status in ["queued", "in_progress"]:
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Assistant run timed out after {timeout}s")
+
+                time.sleep(0.5)
+                run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
+            if run.status != "completed":
+                raise RuntimeError(f"Assistant run failed with status: {run.status}")
+
+            # Get messages
+            messages = client.beta.threads.messages.list(thread_id=thread.id)
+
+            # Return the last assistant message
+            for msg in messages.data:
+                if msg.role == "assistant":
+                    content_block = msg.content[0]
+                    # TextContentBlock has a .text attribute which is a Text object
+                    # Text object has a .value attribute with the actual content
+                    if hasattr(content_block, 'text'):
+                        text_obj = content_block.text
+                        if hasattr(text_obj, 'value'):
+                            return text_obj.value
+
+                    # Fallback: try direct access
+                    if hasattr(content_block, 'value'):
+                        return content_block.value
+
+                    # Last resort: stringify
+                    return str(content_block)
+
+            raise RuntimeError("No response from assistant")
+
+        except Exception as e:
             raise RuntimeError(f"API call failed: {str(e)}")
 
 
@@ -239,16 +298,16 @@ class TestGoldenTests:
         assert "\\ansicpg" in output or "\\ansicpg" not in output, "Character set OK"  # More flexible
 
 
-@pytest.mark.parametrize(
-    "variation",
-    [
-        "sample1.txt",  # Original
-        "sample1.txt",  # Duplicate to test consistency
-    ],
-)
 class TestRobustness:
     """Robustness tests: Verify stability across variations"""
 
+    @pytest.mark.parametrize(
+        "variation",
+        [
+            "sample1.txt",  # Original
+            "sample1.txt",  # Duplicate to test consistency
+        ],
+    )
     def test_consistent_output_format(self, variation):
         """Multiple calls should produce consistent RTF format"""
         with open(INPUT_DIR / variation) as f:
