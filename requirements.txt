@@ -1,0 +1,12 @@
+# Testing and API dependencies
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-timeout==2.2.0
+pytest-xdist==3.5.0
+requests==2.31.0
+
+# Optional: RTF parsing (for advanced validation)
+# pyrtf-ng==1.0.2
+
+# Optional: For test report generation
+jinja2==3.1.2

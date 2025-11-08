@@ -1,0 +1,18 @@
+Convertir le texte suivant en document RTF structuré avec titre, sections et formatage:
+
+# Rapport Mensuel - Novembre 2025
+
+## Objectifs Atteints
+- Implémentation des tests automatisés
+- Déploiement en production
+- Réduction de la dette technique
+
+## Problèmes Identifiés
+- Performance des requêtes API (+15% latence)
+- Documentation incomplète
+- Deux bugs critiques résolus
+
+## Prochaines Étapes
+1. Optimiser les requêtes en base de données
+2. Mettre à jour la documentation
+3. Planifier le sprint Q1 2025

@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+Generate markdown test report from pytest results
+"""
+
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List
+
+
+def parse_junit_xml(xml_file: str) -> Dict:
+    """Parse JUnit XML results"""
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+
+        results = {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "errors": 0,
+            "test_cases": [],
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        testsuite = root
+        results["total"] = int(testsuite.get("tests", 0))
+        results["failed"] = int(testsuite.get("failures", 0))
+        results["errors"] = int(testsuite.get("errors", 0))
+        results["skipped"] = int(testsuite.get("skipped", 0))
+        results["passed"] = results["total"] - results["failed"] - results["errors"] - results["skipped"]
+
+        for testcase in testsuite.findall(".//testcase"):
+            case = {
+                "name": testcase.get("name", "Unknown"),
+                "classname": testcase.get("classname", "Unknown"),
+                "time": float(testcase.get("time", 0)),
+                "status": "passed",
+                "message": "",
+            }
+
+            # Check for failures
+            failure = testcase.find("failure")
+            if failure is not None:
+                case["status"] = "failed"
+                case["message"] = failure.text or failure.get("message", "")
+
+            # Check for errors
+            error = testcase.find("error")
+            if error is not None:
+                case["status"] = "error"
+                case["message"] = error.text or error.get("message", "")
+
+            # Check for skipped
+            skipped = testcase.find("skipped")
+            if skipped is not None:
+                case["status"] = "skipped"
+                case["message"] = skipped.get("message", "")
+
+            results["test_cases"].append(case)
+
+        return results
+    except Exception as e:
+        print(f"Error parsing XML: {e}", file=sys.stderr)
+        return None
+
+
+def generate_markdown_report(results: Dict, output_dir: str) -> str:
+    """Generate markdown report"""
+    if not results:
+        return "# Test Report\n\nNo test results found.\n"
+
+    # Status emoji
+    status_icon = "✅" if results["failed"] == 0 and results["errors"] == 0 else "❌"
+
+    # Calculate pass rate
+    if results["total"] > 0:
+        pass_rate = (results["passed"] / results["total"]) * 100
+    else:
+        pass_rate = 0
+
+    report = f"""# Custom GPT Test Report
+
+{status_icon} **Status**: {"PASSED" if results["failed"] == 0 and results["errors"] == 0 else "FAILED"}
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| **Total Tests** | {results["total"]} |
+| **Passed** | {results["passed"]} ✅ |
+| **Failed** | {results["failed"]} ❌ |
+| **Errors** | {results["errors"]} ⚠️ |
+| **Skipped** | {results["skipped"]} ⊘ |
+| **Pass Rate** | {pass_rate:.1f}% |
+| **Generated** | {results["timestamp"]} |
+
+## Test Details
+
+"""
+
+    # Group tests by class
+    tests_by_class: Dict[str, List] = {}
+    for test in results["test_cases"]:
+        classname = test["classname"]
+        if classname not in tests_by_class:
+            tests_by_class[classname] = []
+        tests_by_class[classname].append(test)
+
+    # Format each test class
+    for classname, tests in sorted(tests_by_class.items()):
+        report += f"### {classname}\n\n"
+
+        for test in tests:
+            status_emoji = {
+                "passed": "✅",
+                "failed": "❌",
+                "error": "⚠️",
+                "skipped": "⊘",
+            }.get(test["status"], "?")
+
+            report += f"- {status_emoji} **{test['name']}** ({test['time']:.2f}s)\n"
+
+            if test["message"]:
+                # Escape markdown special characters in message
+                message = test["message"][:200]  # Truncate long messages
+                report += f"  ```\n  {message}\n  ```\n"
+
+        report += "\n"
+
+    # Check for output files
+    output_path = Path(output_dir)
+    if output_path.exists():
+        output_files = list(output_path.glob("*.rtf"))
+        if output_files:
+            report += "## Generated RTF Files\n\n"
+            for f in sorted(output_files):
+                report += f"- `{f.name}`\n"
+            report += "\n"
+
+    # Add recommendations
+    report += """## Recommendations
+
+"""
+    if results["failed"] > 0 or results["errors"] > 0:
+        report += """
+- ❌ **Some tests failed**. Review the error messages above.
+- Check API connectivity and authentication.
+- Verify Custom GPT model ID in environment variables.
+- Review test input files in `tests/input/`.
+"""
+    else:
+        report += """
+- ✅ All tests passed!
+- Consider adding more test cases with edge cases.
+- Monitor test execution time trends.
+"""
+
+    report += "\n---\n*Generated by Custom GPT Test Pipeline*\n"
+
+    return report
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python generate_test_report.py <output_dir> [junit_xml_file]")
+        sys.exit(1)
+
+    output_dir = sys.argv[1]
+    junit_file = sys.argv[2] if len(sys.argv) > 2 else "test-results.xml"
+
+    results = parse_junit_xml(junit_file) if Path(junit_file).exists() else None
+
+    report = generate_markdown_report(results, output_dir)
+    print(report)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,20 @@
+Convertir le texte suivant en document RTF:
+
+GUIDE D'UTILISATION - SYSTÈME DE GESTION
+
+Introduction
+Ce guide explique comment utiliser le système de gestion des ressources.
+
+Fonctionnalités Principales
+1. Authentification sécurisée via OAuth2
+2. Tableaux de bord personnalisables
+3. Export en plusieurs formats (CSV, PDF, Excel)
+4. Collaboration en temps réel
+
+Configurations Recommandées
+- Navigateur moderne (Chrome, Firefox, Safari)
+- Connexion Internet stable
+- JavaScript activé
+
+Support
+Pour toute question, contacter: support@example.com
